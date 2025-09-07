@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 import pickle
+import json
 import os
 from datetime import datetime, timedelta
 import warnings
@@ -1248,6 +1249,85 @@ if st.session_state.data is not None:
                         st.session_state.scaled_data = scaled_data
                         st.session_state.X_test = X_test
                         st.session_state.y_test = y_test
+                        # Ghi thông tin cấu hình mô hình ra file JSON để minh bạch tái lập
+                        try:
+                            # Chuẩn bị thông tin dataset
+                            data_df = st.session_state.data
+                            date_min = data_df.index.min().date().isoformat() if len(data_df.index) else None
+                            date_max = data_df.index.max().date().isoformat() if len(data_df.index) else None
+
+                            # Kiểm tra tính dừng cho ARIMA (trên cột target)
+                            try:
+                                series_for_arima, stationarity = prepare_data_for_arima(data_df, target_column=config['target_column'])
+                                stationarity_info = {
+                                    "adf_stat": round(float(stationarity.get('adf_statistic', float('nan'))), 4) if stationarity else None,
+                                    "p_value": round(float(stationarity.get('p_value', float('nan'))), 4) if stationarity else None,
+                                    "stationary": bool(stationarity.get('is_stationary')) if stationarity else None
+                                }
+                            except Exception:
+                                stationarity_info = {
+                                    "adf_stat": None,
+                                    "p_value": None,
+                                    "stationary": None
+                                }
+
+                            # Mô tả các layer của NN hiện tại
+                            nn_layers = [{
+                                "type": config['model_type'],
+                                "units": int(config['num_neurons']),
+                                "dropout": float(config['dropout_rate'])
+                            } for _ in range(int(config['num_hidden_layers']))]
+                            nn_layers.append({
+                                "type": "Dense",
+                                "units": 1,
+                                "activation": "linear"
+                            })
+
+                            # Xây dựng object JSON theo mẫu cung cấp
+                            model_info = {
+                                "dataset": {
+                                    "name": "VNIndex",
+                                    "features": list(config['features_to_use']),
+                                    "sequence_length": int(config['time_step']),
+                                    "train_split": 0.8,
+                                    "date_range": {
+                                        "from": date_min,
+                                        "to": date_max
+                                    }
+                                },
+                                config['model_type']: {
+                                    "layers": nn_layers,
+                                    "epochs": int(config['epochs']),
+                                    "batch_size": int(config['batch_size']),
+                                    "learning_rate": float(config.get('learning_rate', 0.001)),
+                                    "validation_split": float(config.get('validation_split', 0.1)),
+                                    "optimizer": "adam",
+                                    "loss": "mae"
+                                },
+                                "ARIMA": {
+                                    "order": None,
+                                    "seasonal_order": None,
+                                    "stationarity_test": stationarity_info,
+                                    "auto_param_search": False
+                                },
+                                "meta": {
+                                    "created_at": datetime.utcnow().isoformat() + "Z",
+                                    "created_by": os.getenv("USER", "dashboard"),
+                                    "reproducibility": {"seed": 42},
+                                    "notes": "Generated automatically when training starts."
+                                }
+                            }
+
+                            # Nếu model hiện tại không phải GRU/LSTM còn lại, thêm mục 'planned' đơn giản cho loại kia
+                            other_type = "GRU" if config['model_type'] == "LSTM" else "LSTM"
+                            model_info[other_type] = {"planned": True}
+
+                            os.makedirs("models", exist_ok=True)
+                            with open(os.path.join("models", "model_info.json"), "w", encoding="utf-8") as f:
+                                json.dump(model_info, f, ensure_ascii=False, indent=2)
+                        except Exception as _json_err:
+                            # Không chặn quá trình train nếu ghi file lỗi, chỉ thông báo nhẹ
+                            st.warning(f"Không thể lưu model_info.json: {_json_err}")
                     
                     st.success(f"✅ Tiền xử lý hoàn tất! Shape: Train {X_train.shape}, Test {X_test.shape}")
                     
