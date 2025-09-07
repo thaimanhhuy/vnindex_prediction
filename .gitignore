@@ -1,0 +1,15 @@
+# Ignore Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# IDE/Editor specific
+.vscode/
+.idea/
+
+# Python cache
+__pycache__/
+
+# Virtual environments
+.venv/
+
+# macOS metadata
+.DS_Store
